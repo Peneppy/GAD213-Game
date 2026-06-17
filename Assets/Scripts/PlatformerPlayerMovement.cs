@@ -9,10 +9,24 @@ namespace Player.Movement
         [Header("Movement Variables")]
         [Tooltip("How fast the player moves")]
         [SerializeField] private float moveSpeed = 2f;
+        [Tooltip("Amount of acceleration applied to the player")]
+        [SerializeField] private float acceleration = 7f;
+        [Tooltip("Amount of decceleration applied to the player")]
+        [SerializeField] private float decceleration = 7f;
+        [SerializeField] private float velPower = 0.9f;
         [Tooltip("How much upward force is applied on jumping")]
         [SerializeField] private float jumpForce = 2f;
+        [SerializeField] private float jumpCoyoteTime;
+        [SerializeField] private float jumpBufferTime;
+        [SerializeField] private float lastGroundedTime;
+        [SerializeField] private float lastJumpTime;
+        private bool isJumping;
         [Tooltip("How much directional force is applied on dashing")]
         [SerializeField] private float dashForce = 50f;
+        [Tooltip("The amount of dashes a player has")]
+        [SerializeField] private int maxDashes = 1;
+        private int currentDashAmount;
+        [SerializeField] private bool isDashing;
 
         [Space(2)]
         [Header("Ground Check Variables")]
@@ -83,6 +97,8 @@ namespace Player.Movement
             }
 
             isGrounded = true;
+            isDashing = false;
+            currentDashAmount = maxDashes;
         }
 
         private void FixedUpdate()
@@ -95,32 +111,62 @@ namespace Player.Movement
             GroundChecking();
             Jump(jumpAction);
             Dash(dashAction, moveAction.ReadValue<Vector2>());
+            if (jumpAction.WasReleasedThisFrame())
+            {
+                lastGroundedTime = 0f;
+                lastJumpTime = 0f;
+            }
         }
 
         private void Movement(Vector2 moveCoords)
         {
-            rbref.linearVelocity = new Vector2(moveCoords.x * moveSpeed, rbref.linearVelocity.y);
+            if (!isDashing)
+            {
+                //rbref.linearVelocity = new Vector2(moveCoords.x * moveSpeed, rbref.linearVelocity.y);
+                float targetSpeed = moveCoords.x * moveSpeed;
+                float speedDiff = targetSpeed - rbref.linearVelocity.x;
+                float accelRate = (Mathf.Abs(targetSpeed) > 0.01f) ? acceleration : decceleration;
+                float movement = Mathf.Pow(Mathf.Abs(speedDiff) * accelRate, velPower) * Mathf.Sign(speedDiff);
+
+                rbref.AddForce(movement * Vector2.right);
+            }
         }
 
         private void Jump(InputAction action)
         {
-            if (action.triggered && isGrounded == true)
+            if (action.triggered)
             {
-                rbref.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+                lastJumpTime = jumpBufferTime;
+                if (lastGroundedTime > 0 && lastJumpTime > 0 && !isJumping)
+                {
+                    rbref.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+                    isJumping = true;
+                }
             }
         }
 
         private void Dash(InputAction action, Vector2 moveDirection)
         {
-            if (action.triggered)
+            if (action.triggered && isDashing == false && currentDashAmount > 0)
             {
                 if (doDebugging)
                 {
                     Debug.Log("Dash triggered");
                 }
-                //rbref.AddForce(moveDirection * dashForce, ForceMode2D.Impulse);
-                rbref.linearVelocity = new Vector2(moveDirection.x * dashForce, rbref.linearVelocity.y);
+                isDashing = true;
+                currentDashAmount -= 1;
+                rbref.AddForce(moveDirection * dashForce, ForceMode2D.Impulse);
+                Invoke("DashCooldown", 0.25f);
             }
+            if (isGrounded)
+            {
+                currentDashAmount = maxDashes;
+            }
+        }
+
+        private void DashCooldown()
+        {
+            isDashing = false;
         }
 
         private void GroundChecking()
@@ -142,7 +188,9 @@ namespace Player.Movement
 
             if (results)
             {
+                lastGroundedTime = jumpCoyoteTime;
                 isGrounded = true;
+                isJumping = false;
                 if (doDebugging)
                 {
                     Debug.Log("Player is grounded");
@@ -151,6 +199,7 @@ namespace Player.Movement
             else
             {
                 isGrounded = false;
+                lastGroundedTime -= Time.deltaTime;
                 if (doDebugging)
                 {
                     Debug.Log("Player is not grounded");
