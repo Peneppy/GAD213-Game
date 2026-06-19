@@ -1,3 +1,4 @@
+using NUnit.Framework;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -8,21 +9,28 @@ namespace Player.Movement
     {
         [Header("Movement Variables")]
         [Tooltip("How fast the player moves")]
-        [SerializeField] private float moveSpeed = 2f;
+        [SerializeField] private float moveSpeed = 10f;
         [Tooltip("Amount of acceleration applied to the player")]
-        [SerializeField] private float acceleration = 7f;
+        [SerializeField] private float acceleration = 10f;
         [Tooltip("Amount of decceleration applied to the player")]
-        [SerializeField] private float decceleration = 7f;
+        [SerializeField] private float decceleration = 15f;
         [SerializeField] private float velPower = 0.9f;
+        [Tooltip("Amount of friction applied to player to stop movement")]
+        [SerializeField] private float frictionAmount = 0.2f;
         [Tooltip("How much upward force is applied on jumping")]
-        [SerializeField] private float jumpForce = 2f;
+        [SerializeField] private float jumpForce = 10f;
+        [Tooltip("Amount of buffer time a player is given after they've left a surface to jump")]
         [SerializeField] private float jumpCoyoteTime;
         [SerializeField] private float jumpBufferTime;
-        [SerializeField] private float lastGroundedTime;
-        [SerializeField] private float lastJumpTime;
+        [Tooltip("Controls how much the player ascends on a jump cut")]
+        [SerializeField] private float jumpCutMultiplier = 0.25f;
+        [Tooltip("How much gravity should increase when the player stops moving vertically")]
+        [SerializeField] private float fallGravityMultiplier = 1.75f;
+        private float lastGroundedTime;
+        private float lastJumpTime;
         private bool isJumping;
         [Tooltip("How much directional force is applied on dashing")]
-        [SerializeField] private float dashForce = 50f;
+        [SerializeField] private float dashForce = 10f;
         [Tooltip("The amount of dashes a player has")]
         [SerializeField] private int maxDashes = 1;
         private int currentDashAmount;
@@ -104,6 +112,7 @@ namespace Player.Movement
         private void FixedUpdate()
         {
             Movement(moveAction.ReadValue<Vector2>());
+            ArtificialFriction(moveAction.ReadValue<Vector2>());
         }
 
         private void Update()
@@ -113,9 +122,13 @@ namespace Player.Movement
             Dash(dashAction, moveAction.ReadValue<Vector2>());
             if (jumpAction.WasReleasedThisFrame())
             {
+                JumpCut();
                 lastGroundedTime = 0f;
                 lastJumpTime = 0f;
+                isJumping = false;
             }
+            FaceDirection(moveAction.ReadValue<Vector2>());
+            JumpGravity();
         }
 
         private void Movement(Vector2 moveCoords)
@@ -132,6 +145,16 @@ namespace Player.Movement
             }
         }
 
+        private void ArtificialFriction(Vector2 moveInput)
+        {
+            if (lastGroundedTime > 0 && Mathf.Abs(moveInput.x) < 0.01f)
+            {
+                float amount = Mathf.Min(Mathf.Abs(rbref.linearVelocity.x), Mathf.Abs(frictionAmount));
+                amount *= Mathf.Sign(rbref.linearVelocity.x);
+                rbref.AddForce(Vector2.right * -amount, ForceMode2D.Impulse);
+            }
+        }
+
         private void Jump(InputAction action)
         {
             if (action.triggered)
@@ -142,6 +165,28 @@ namespace Player.Movement
                     rbref.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
                     isJumping = true;
                 }
+            }
+        }
+
+        private void JumpCut()
+        {
+            if (rbref.linearVelocity.y > 0 && isJumping)
+            {
+                rbref.AddForce(Vector2.down * rbref.linearVelocity.y * (1 - jumpCutMultiplier), ForceMode2D.Impulse);
+                isJumping = false;
+            }
+        }
+
+        private void JumpGravity()
+        {
+            int gravityScale = 1;
+            if (rbref.linearVelocityY < 0)
+            {
+                rbref.gravityScale = gravityScale * fallGravityMultiplier;
+            }
+            else
+            {
+                rbref.gravityScale = gravityScale;
             }
         }
 
@@ -190,7 +235,6 @@ namespace Player.Movement
             {
                 lastGroundedTime = jumpCoyoteTime;
                 isGrounded = true;
-                isJumping = false;
                 if (doDebugging)
                 {
                     Debug.Log("Player is grounded");
@@ -204,6 +248,18 @@ namespace Player.Movement
                 {
                     Debug.Log("Player is not grounded");
                 }
+            }
+        }
+
+        private void FaceDirection(Vector2 moveInput)
+        {
+           if (moveInput.x > 0)
+            {
+                transform.eulerAngles = new Vector3(0,0,0);
+            } 
+            else if (moveInput.x < 0)
+            {
+                transform.eulerAngles = new Vector3(0,180,0);
             }
         }
     }
